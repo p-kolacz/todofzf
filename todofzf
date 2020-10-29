@@ -1,0 +1,290 @@
+#!/usr/bin/env python3
+
+import os,argparse,re,subprocess,hashlib,functools,locale
+
+# TODO_FILE = "todo.txt"
+
+# TASK_REGEX = r"^(x\s)?(\([A-Z]\)\s)?((?:\d{4}-\d{2}-\d{2}\s){0,2})(.*?)(?=\s\+|\s@|\s\S+:|$)((?:\s\+\S+)*)((?:\s@\S+)*)((?:\s[^\s:]+:[^\s:]+)*)(.*)"
+TASK_REGEX = r"^(x\s)?(\([A-Z]\)\s)?((?:\d{4}-\d{2}-\d{2}\s){0,2})(.*)"
+PRIO_REGX = r"^\([A-Z]\)\s"
+
+COLORS_checked	= "\033[92m"
+COLORS_priority	= "\033[31m"
+COLORS_date		= "\033[37m"
+COLORS_project	= "\033[35m"
+COLORS_tag		= "\033[34m"
+COLORS_kv		= "\033[33m"
+COLORS_bg		= "\033[30m"
+RST				= "\033[0m"
+
+################################################################################
+
+def run_action(_):
+	lines = get_lines()
+	lines.sort()
+	tasks = format_lines(lines)
+	env = dict(os.environ)
+	env["SHELL"] = "/bin/bash"
+	subprocess.run(FZF, text=True, input=tasks, env=env)
+
+def preview_action(args):
+	lines = get_lines()
+	lines.sort()
+	i = line_idx(lines, args.line_hash)
+	if i < 0:
+		print("Invalid line hash, this should't happen...")
+		return
+	task = lines[i]
+	match = re.match(TASK_REGEX, task.rstrip())
+	ret = []
+	# ret.append(task.rstrip())
+	desc = match.group(4)
+	ret.append(f"{get_checkbox(match)}{desc}\n")
+	dates = get_dates(match)
+	if match.group(1):		# Completed
+		if len(dates) == 2:
+			ret.append(f"Created: {COLORS_date}{dates[1]}{RST}    Completed: {COLORS_date}{dates[0]}{RST}")
+		elif len(dates) == 1:
+			ret.append(f"Completed: {COLORS_date}{dates[0]}{RST}")
+	else:
+		priority = match.group(2)
+		if priority:
+			ret.append(f"Priority: {COLORS_priority}{priority}{RST}")
+		if len(dates) == 2:
+			ret.append("Invalid dates")
+		elif len(dates) == 1:
+			ret.append(f"Created: {COLORS_date}{dates[0]}{RST}")
+	
+	projects = re.findall(r"\s\+\S+", desc)
+	if projects:
+		projects = str.join("", projects)
+		ret.append(f"Projects:{COLORS_project}{projects}{RST}")
+
+	tags = re.findall(r"\s@\S+", desc)
+	if tags:
+		tags = str.join("", tags)
+		ret.append(f"Tags:{COLORS_tag}{tags}{RST}")
+
+	kvs = re.findall(r"\s[^\s:]+:[^\s:]+", desc)
+	if kvs:
+		kvs = str.join("", kvs)
+		ret.append(f"Additional:{COLORS_tag}{kvs}{RST}")
+
+
+		# ret.append(m.group(1))
+	# projects = match.group(5)
+	# if projects:
+	# 	ret.append(f"Projects: {COLORS_project}{projects}{RST}")
+	# tags = match.group(6)
+	# if tags:
+	# 	ret.append(f"Tags: {COLORS_tag}{tags}{RST}")
+	# kvs = match.group(7)
+	# if kvs:
+	# 	ret.append(f"Additional: {COLORS_kv}{kvs}{RST}")
+	# invalid = match.group(8)
+	# if invalid:
+	# 	ret.append(f"Invalid data: {invalid}")
+	
+	print(str.join("\n", ret))
+
+def add_action(_):
+	task = input_edit("Add new task: ", today() + " ")
+	if task:
+		with open(TODO_FILE, "a") as f:
+			f.write(task + "\n")
+
+def edit_action(args):
+	lines = get_lines()
+	i = line_idx(lines, args.line_hash)
+	if i >= 0:
+		task = input_edit("Edit task: ", lines[i].rstrip())
+		if task:
+			lines[i] = task + "\n"
+			save_lines(lines)
+
+def delete_action(args):
+	lines = get_lines()
+	i = line_idx(lines, args.line_hash)
+	if i >= 0:
+		res = input("Are you sure [y/n]? ").lower()
+		if res == "y":
+			lines.pop(i)
+			save_lines(lines)
+
+def toggle_action(args):
+	lines = get_lines()
+	i = line_idx(lines, args.line_hash)
+	if i >= 0:
+		if is_completed(lines[i]):			# completed
+			lines[i] = lines[i][2:]
+			TWODATES_REGX = r"^(\d{4}-\d{2}-\d{2}\s)(\d{4}-\d{2}-\d{2}\s)"
+			if re.match(TWODATES_REGX, lines[i]):
+				lines[i] = re.sub(TWODATES_REGX, r"\2", lines[i], 1)
+			else:
+				lines[i] = re.sub(r"^\d{4}-\d{2}-\d{2}\s", "", lines[i], 1)
+		else:								# not completed
+			lines[i] = re.sub(PRIO_REGX, "", lines[i])
+			lines[i] = f"x {today()} " + lines[i]
+		save_lines(lines)
+	lines.sort()
+	print(format_lines(lines))
+
+def priority_action(args):
+	lines = get_lines()
+	i = line_idx(lines, args.line_hash)
+	if i >= 0 and not is_completed(lines[i]):
+		if args.priority == "0":
+			lines[i] = change_priority(lines[i], "")
+		elif re.match(PRIO_REGX, lines[i]):
+			lines[i] = change_priority(lines[i], f"({args.priority}) ")
+		else:
+			lines[i] =  f"({args.priority}) " + lines[i]
+		save_lines(lines)
+	lines.sort()
+	print(format_lines(lines))
+
+def help_action(_):
+	print("""Ctrl-a		add new task
+Ctrl-e		edit task
+Ctrl-d		delete task
+Ctrl-x		toggle completion 
+Alt-1,2,3	set priority
+Alt-0		remove priority
+Esc		exit
+""")
+
+def reload_action(_):
+	lines = get_lines()
+	lines.sort()
+	print(format_lines(lines))
+
+# ---------------------------------------------------------------------------- #
+
+def get_lines():
+	with open(TODO_FILE) as f:
+		lines = f.readlines()
+	return lines
+
+def save_lines(lines):
+	with open(TODO_FILE, mode="w") as f:
+		f.writelines(lines)
+
+def format_lines(lines:list):
+	tasks = []
+	for line in lines:
+		match = re.match(TASK_REGEX, line.rstrip())
+		if match:
+			prio = match.group(2)[1] if match.group(2) else ""
+			dates = get_dates(match)
+			date = ""
+			if match.group(1):
+				if len(dates) > 0:
+					date = dates[0]
+				else:
+					date = ""
+			else:
+				if len(dates) == 2:
+					date = "inval date"
+				elif len(dates) == 1:
+					date = dates[0]
+				else:
+					date = ""
+
+			line_hash = hashlib.md5(line.encode()).hexdigest()
+			desc = match.group(4)
+			desc = re.sub(r"\s(\+\S+)", fr" {COLORS_project}\1{RST}", desc)
+			desc = re.sub(r"\s(@\S+)", fr" {COLORS_tag}\1{RST}", desc)
+			# tasks.append(f"{get_checkbox(match)} {COLORS_priority}{prio:1} {COLORS_date}{date:11}{RST} {match.group(4)} {COLORS_project}{match.group(5)}{COLORS_tag}{match.group(6)} {COLORS_bg}{line_hash}{RST}")
+			tasks.append(f"{get_checkbox(match)} {COLORS_priority}{prio:1} {COLORS_date}{date:11}{RST} {desc} {COLORS_bg}{line_hash}{RST}")
+		else:
+			tasks.append("Invalid line: " + line)
+	return str.join("\n", tasks)
+
+def get_checkbox(match):
+	return f"{COLORS_checked} {RST}" if match.group(1) else " "
+
+def get_dates(match):
+	d = match.group(3)
+	return d.rstrip().split(" ") if d else []
+
+def line_idx(lines:list, line_hash:str):
+	for i, line in enumerate(lines):
+		if hashlib.md5(line.encode()).hexdigest() == line_hash:
+			return i
+	return -1
+
+def input_edit(prompt, text):
+	import readline
+	def hook():
+		readline.insert_text(text)
+		readline.redisplay()
+	readline.set_pre_input_hook(hook)
+	result = input(prompt)
+	readline.set_pre_input_hook()
+	return result
+
+def is_completed(line):
+	return re.match(r"^x\s", line) != None
+
+def today():
+	from datetime import date
+	return date.today().strftime("%Y-%m-%d")
+
+def change_priority(line, new_prio):
+	return re.sub(PRIO_REGX, new_prio, line, 1)
+
+################################################################################
+
+parser = argparse.ArgumentParser()
+parser.set_defaults(func=run_action)
+parser.add_argument("file")
+subparsers = parser.add_subparsers()
+
+actions = {"preview": preview_action, "add": add_action, "edit": edit_action, "delete": delete_action, "toggle": toggle_action}
+for key in actions:
+	sp = subparsers.add_parser(key)
+	sp.add_argument("line_hash")
+	sp.set_defaults(func=actions[key])
+
+sp_prio = subparsers.add_parser("priority")
+sp_prio.add_argument("priority")
+sp_prio.add_argument("line_hash")
+sp_prio.set_defaults(func=priority_action)
+
+subparsers.add_parser("help").set_defaults(func=help_action)
+subparsers.add_parser("reload").set_defaults(func=reload_action)
+
+args = parser.parse_args()
+
+TODO_FILE = args.file
+SCRIPT_PATH = os.path.abspath(__file__)
+PREFIX = f"{SCRIPT_PATH} '{TODO_FILE}'"
+FZF = [
+	"fzf",
+	"--preview=" + PREFIX + " preview {-1}",
+	"--bind=F1:preview(" + PREFIX + " help)",
+	"--bind=ctrl-a:execute(" + PREFIX + " add {-1} < /dev/tty)+reload(" + PREFIX + " reload)",
+	"--bind=ctrl-e:execute(" + PREFIX + " edit {-1} < /dev/tty)+reload(" + PREFIX + " reload)",
+	"--bind=ctrl-d:execute(" + PREFIX + " delete {-1} < /dev/tty)+reload(" + PREFIX + " reload)",
+	"--bind=ctrl-x:reload(" + PREFIX + " toggle {-1})",
+	"--bind=alt-0:reload(" + PREFIX + " priority 0 {-1})",
+	"--bind=alt-1:reload(" + PREFIX + " priority A {-1})",
+	"--bind=alt-2:reload(" + PREFIX + " priority B {-1})",
+	"--bind=alt-3:reload(" + PREFIX + " priority C {-1})",
+	"--layout=reverse",
+	"--no-hscroll",
+	"--no-sort",
+	"--border",
+	"--preview-window=up:7",
+	"--prompt=  ",
+	"--ansi",
+	"--header=F1 - help",
+	"--info=inline",
+	"--nth=..-2",
+]
+
+if os.path.exists(TODO_FILE):
+	args.func(args)
+else:
+	print(f"Invalid file: {TODO_FILE}")
+
