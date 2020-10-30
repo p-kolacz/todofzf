@@ -272,7 +272,7 @@ FZF = [
 	"--ansi",
 	"--header=F1 - help",
 	"--info=inline",
-	"--nth=..-2",
+	# "--nth=..-2",
 	"--with-nth=..-2",
 ]
 
