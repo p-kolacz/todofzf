@@ -1,8 +1,6 @@
 #!/usr/bin/env python3
 
-import os,argparse,re,subprocess,hashlib,functools,locale
-
-# TODO_FILE = "todo.txt"
+import os,argparse,re,subprocess,hashlib
 
 # TASK_REGEX = r"^(x\s)?(\([A-Z]\)\s)?((?:\d{4}-\d{2}-\d{2}\s){0,2})(.*?)(?=\s\+|\s@|\s\S+:|$)((?:\s\+\S+)*)((?:\s@\S+)*)((?:\s[^\s:]+:[^\s:]+)*)(.*)"
 TASK_REGEX = r"^(x\s)?(\([A-Z]\)\s)?((?:\d{4}-\d{2}-\d{2}\s){0,2})(.*)"
@@ -14,7 +12,7 @@ COLORS_date		= "\033[37m"
 COLORS_project	= "\033[35m"
 COLORS_tag		= "\033[34m"
 COLORS_kv		= "\033[33m"
-COLORS_bg		= "\033[30m"
+# COLORS_bg		= "\033[30m"
 RST				= "\033[0m"
 
 ################################################################################
@@ -70,21 +68,6 @@ def preview_action(args):
 		kvs = str.join("", kvs)
 		ret.append(f"Additional:{COLORS_tag}{kvs}{RST}")
 
-
-		# ret.append(m.group(1))
-	# projects = match.group(5)
-	# if projects:
-	# 	ret.append(f"Projects: {COLORS_project}{projects}{RST}")
-	# tags = match.group(6)
-	# if tags:
-	# 	ret.append(f"Tags: {COLORS_tag}{tags}{RST}")
-	# kvs = match.group(7)
-	# if kvs:
-	# 	ret.append(f"Additional: {COLORS_kv}{kvs}{RST}")
-	# invalid = match.group(8)
-	# if invalid:
-	# 	ret.append(f"Invalid data: {invalid}")
-	
 	print(str.join("\n", ret))
 
 def add_action(_):
@@ -143,6 +126,15 @@ def priority_action(args):
 	lines.sort()
 	print(format_lines(lines))
 
+def gotourl_action(args):
+	lines = get_lines()
+	i = line_idx(lines, args.line_hash)
+	browser = os.environ.get("BROWSER")
+	if browser and i >= 0:
+		urls = re.findall(r"https?://\S+", lines[i])
+		for url in urls:
+			subprocess.run([browser, url])
+
 def help_action(_):
 	print("""Ctrl-a		add new task
 Ctrl-e		edit task
@@ -194,8 +186,7 @@ def format_lines(lines:list):
 			desc = match.group(4)
 			desc = re.sub(r"\s(\+\S+)", fr" {COLORS_project}\1{RST}", desc)
 			desc = re.sub(r"\s(@\S+)", fr" {COLORS_tag}\1{RST}", desc)
-			# tasks.append(f"{get_checkbox(match)} {COLORS_priority}{prio:1} {COLORS_date}{date:11}{RST} {match.group(4)} {COLORS_project}{match.group(5)}{COLORS_tag}{match.group(6)} {COLORS_bg}{line_hash}{RST}")
-			tasks.append(f"{get_checkbox(match)} {COLORS_priority}{prio:1} {COLORS_date}{date:11}{RST} {desc} {COLORS_bg}{line_hash}{RST}")
+			tasks.append(f"{get_checkbox(match)} {COLORS_priority}{prio:1} {COLORS_date}{date:11}{RST} {desc} {line_hash}")
 		else:
 			tasks.append("Invalid line: " + line)
 	return str.join("\n", tasks)
@@ -240,7 +231,7 @@ parser.set_defaults(func=run_action)
 parser.add_argument("file")
 subparsers = parser.add_subparsers()
 
-actions = {"preview": preview_action, "add": add_action, "edit": edit_action, "delete": delete_action, "toggle": toggle_action}
+actions = {"preview": preview_action, "add": add_action, "edit": edit_action, "delete": delete_action, "toggle": toggle_action, "gotourl": gotourl_action}
 for key in actions:
 	sp = subparsers.add_parser(key)
 	sp.add_argument("line_hash")
@@ -267,6 +258,7 @@ FZF = [
 	"--bind=ctrl-e:execute(" + PREFIX + " edit {-1} < /dev/tty)+reload(" + PREFIX + " reload)",
 	"--bind=ctrl-d:execute(" + PREFIX + " delete {-1} < /dev/tty)+reload(" + PREFIX + " reload)",
 	"--bind=ctrl-x:reload(" + PREFIX + " toggle {-1})",
+	"--bind=ctrl-g:execute-silent(" + PREFIX + " gotourl {-1})",
 	"--bind=alt-0:reload(" + PREFIX + " priority 0 {-1})",
 	"--bind=alt-1:reload(" + PREFIX + " priority A {-1})",
 	"--bind=alt-2:reload(" + PREFIX + " priority B {-1})",
@@ -281,6 +273,7 @@ FZF = [
 	"--header=F1 - help",
 	"--info=inline",
 	"--nth=..-2",
+	"--with-nth=..-2",
 ]
 
 if os.path.exists(TODO_FILE):

@@ -7,16 +7,18 @@ Edit [todo.txt](http://todotxt.org/) files using [fzf](https://github.com/junegu
 ## Features
 
 - Fuzzy search
-- Add tasks
-- Edit tasks
-- Delete tasks
-- Toggle completion
-- Set and remove proirities
+- Add tasks - Ctrl-a
+- Edit tasks - Ctrl-e
+- Delete tasks - Ctrl-d
+- Toggle completion - Ctrl-x
+- Set and remove proirities - Alt-1,2,3,0
+- Open URL in $BROWSER - Ctrl-g
 
 ## Requirements
 
 - fzf
 - python
+- NerdFont for checkboxes
 
 ## Usage
 
