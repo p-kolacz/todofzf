@@ -7,13 +7,14 @@ TASK_REGEX = r"^(x\s)?(\([A-Z]\)\s)?((?:\d{4}-\d{2}-\d{2}\s){0,2})(.*)"
 PRIO_REGX = r"^\([A-Z]\)\s"
 
 COLORS_checked	= "\033[92m"
-COLORS_priority	= "\033[31m"
 COLORS_date		= "\033[37m"
 COLORS_project	= "\033[35m"
 COLORS_tag		= "\033[34m"
 COLORS_kv		= "\033[33m"
+# COLORS_priority	= "\033[31m"
 # COLORS_bg		= "\033[30m"
 RST				= "\033[0m"
+COLORS_priorities = { "A": "\033[31m", "B": "\033[35m", "C": "\033[33m", "D": "\033[34m" }
 
 ################################################################################
 
@@ -47,7 +48,7 @@ def preview_action(args):
 	else:
 		priority = match.group(2)
 		if priority:
-			ret.append(f"Priority: {COLORS_priority}{priority}{RST}")
+			ret.append(f"Priority: {priority_color(priority)}{priority}{RST}")
 		if len(dates) == 2:
 			ret.append("Invalid dates")
 		elif len(dates) == 1:
@@ -186,7 +187,7 @@ def format_lines(lines:list):
 			desc = match.group(4)
 			desc = re.sub(r"\s(\+\S+)", fr" {COLORS_project}\1{RST}", desc)
 			desc = re.sub(r"\s(@\S+)", fr" {COLORS_tag}\1{RST}", desc)
-			tasks.append(f"{get_checkbox(match)} {COLORS_priority}{prio:1} {COLORS_date}{date:11}{RST} {desc} {line_hash}")
+			tasks.append(f"{get_checkbox(match)} {priority_color(prio)}{prio:1} {COLORS_date}{date:11}{RST} {desc} {line_hash}")
 		else:
 			tasks.append("Invalid line: " + line)
 	return str.join("\n", tasks)
@@ -223,6 +224,10 @@ def today():
 
 def change_priority(line, new_prio):
 	return re.sub(PRIO_REGX, new_prio, line, 1)
+
+def priority_color(priority):
+	priority = priority if len(priority) == 1 else priority[1:2]
+	return COLORS_priorities[priority] if priority in COLORS_priorities.keys() else RST
 
 ################################################################################
 
